@@ -153,9 +153,11 @@ async function asyncForEach(array, callback) {
 
 function checkForLatest(key, index, keys) {
 
+  if(key.length!==92) return
+
   storage.get(key, function (err, storedId) {
 
-    if(storedId.length()!==10) return
+    if(storedId.length!==10) return
 
     const episodeData = await getLatestEpisode(key)
     if(!(episodeData && episodeData.id)) return
