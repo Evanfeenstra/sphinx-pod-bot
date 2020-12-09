@@ -152,8 +152,6 @@ function checkForLatest(key, index, keys) {
 
   storage.get(key, async function (err, storedId) {
 
-    if(storedId.length!==10) return
-
     const episodeData = await getLatestEpisode(key)
     if(!(episodeData && episodeData.id)) return
     if(storedId === episodeData.id) return
