@@ -2,28 +2,55 @@ import 'regenerator-runtime/runtime.js';
 import * as Sphinx from 'sphinx-bot'
 import * as fetch from 'node-fetch'
 const msg_types = Sphinx.MSG_TYPE
+require('dotenv').config();
+var redis = require('redis');
+var storage = redis.createClient(process.env.REDISCLOUD_URL, {no_ready_check: true});
 
 let initted = false
+
+console.log("bot connected")
 
 /*
 // SPHINX_TOKEN contains id,secret,and url
 // message.channel.send sends to the url the data
 */
 
+const sphinxToken = process.env.SPHINX_TOKEN
+
+
+//ON INSTALL:
+//get tribe ID
+//plug tribe ID into https://tribes.sphinx.chat/tribes/ID
+//await fetch() from above url
+//pull feed_url from above url
+//plug feed_url into https://tribes.sphinx.chat/podcast?url=FEED_URL
+//pull "episodes" array, first object, id: number
+//store epidode ID number in object with storage.set(TRIBE_UUID, LATEST_EPISODE_ID)
+//send install message
+
+
+
+
+
+
 function init() {
   if (initted) return
   initted = true
+  console.log("Bot Connected")
 
   const client = new Sphinx.Client()
   client.login(sphinxToken)
 
   client.on(msg_types.INSTALL, async (message) => {
+
     const embed = new Sphinx.MessageEmbed()
       .setAuthor('PodBot')
       .setDescription('Welcome to Pod Bot!')
       .setThumbnail(botSVG)
     message.channel.send({ embed })
+
   })
+
 
   client.on(msg_types.MESSAGE, async (message) => {
     const arr = message.content.split(' ')
@@ -35,26 +62,30 @@ function init() {
 
       case 'watch':
         console.log("=> watch")
+        let response = 'PodBot will notify your tribe when a new episode is released'
         const isAdmin = message.member.roles.find(role => role.name === 'Admin')
         console.log('=> IS ADMIN?', isAdmin)
         if(!isAdmin) return
-        try {
-          const r = await fetch(TRIBE_URL+'/podcast?url='+podurl)
-          if (!r.ok) return
-          const j = await r.json()
-          const embed = new Sphinx.MessageEmbed()
+          const tribeId = message.channel.id
+          const episodeData = await getLatestEpisode(tribeId)
+
+          if(episodeData && episodeData.id) {
+            joinPodWatch(tribeId, episodeId)
+          } else {
+            response = 'There is no podcast associated with this tribe'
+          }
+          
+          const embed2 = new Sphinx.MessageEmbed()
             .setAuthor('PodBot')
             .setTitle('Status:')
-            .setDescription('PodBot will notify your tribe when a new episode is released')
+            .setDescription(response)
             .setThumbnail(botSVG)
-          message.channel.send({ embed })
-        } catch (e) {
-          console.log('Pod bot error', e)
-        }
+          message.channel.send({ embed:embed2 })
+
         return
 
       default:
-        const embed = new Sphinx.MessageEmbed()
+        const embed3 = new Sphinx.MessageEmbed()
           .setAuthor('PodBot')
           .setTitle('PodBot Commands:')
           .addFields([
@@ -62,7 +93,7 @@ function init() {
             { name: 'Help', value: '/pod help' }
           ])
           .setThumbnail(botSVG)
-        message.channel.send({ embed })
+        message.channel.send({ embed:embed3 })
         return
     }
   })
@@ -73,3 +104,95 @@ const botSVG = `<svg viewBox="64 64 896 896" height="12" width="12" fill="white"
 </svg>`
 
 init()
+
+setInterval(function ()
+  {
+    client.keys('*', function (err, keys) {
+      if (err) return console.log(err);
+
+      asyncForEach(keys, checkForLatest)
+
+    })
+  }, 300000);
+
+
+
+
+async function getLatestEpisode(tribeId){
+  try{
+    const r = await fetch(`https://tribes.sphinx.chat/tribes/${tribeId}`)
+    const tribeData = await r.json()
+    if (tribeData && tribeData.feed_url) {
+      const r2 = await fetch(`https://tribes.sphinx.chat/podcast?url=${value}`);
+      const feedData = await r2.json()
+      if (feedData && feedData.episodes && feedData.episodes[0]) {
+        return feedData.episodes[0]
+      }
+    }
+  }
+  catch(e) {
+    console.log('error')
+  }
+}
+
+function joinPodWatch(tribeId, episodeId) {
+    storage.set(tribeId, episodeId);
+}
+
+
+async function asyncForEach(array, callback) {
+	for (let index = 0; index < array.length; index++) {
+	  	await callback(array[index], index, array);
+	}
+}
+
+function checkForLatest(key, index, keys) {
+
+  if(key.length!==92) return
+
+  storage.get(key, async function (err, storedId) {
+
+    if(storedId.length!==10) return
+
+    const episodeData = await getLatestEpisode(key)
+    if(!(episodeData && episodeData.id)) return
+    if(storedId === episodeData.id) return
+    storage.set(key, episodeData.id)
+
+    const relevantChannel = client.channels.cache.get(key)
+    if(!relevantChannel) return
+
+    const embed = new Sphinx.MessageEmbed()
+          .setAuthor('PodBot')
+          .setTitle('New Episode!')
+          .addDescription(episodeData.title)
+          .setThumbnail(botSVG)
+        relevantChannel.send({ embed })
+
+  });
+
+
+
+
+}
+
+//EVERY FIVE MINUTES:
+// setInterval(function ()
+// {
+// }, 300000);
+//
+//const allKeys = storage.keys('*')
+
+//AsyncForEach:
+//  plug each tribe ID into https://tribes.sphinx.chat/tribes/ID
+//  await fetch() from above url
+//  pull feed_url from above url
+//  plug feed_url into https://tribes.sphinx.chat/podcast?url=FEED_URL
+//  pull "episodes" array, first object, id: number
+
+//  Check if episode ID matches stored ID
+//  IF YES: Return
+
+//  IF NOT: Replace with epidode ID number in object with storage.set(TRIBE_UUID, LATEST_EPISODE_ID)
+//  Send message to tribe announcing New Episode
+
